@@ -18,61 +18,16 @@ Options:
   --timestamps         Add a timestamp under each message heading
   --tz ZONE            Time zone for dates, e.g. America/New_York (default: your computer's local zone)
 
-Only the Python standard library is needed (Python 3.8+).
+Only the Python standard library is needed (Python 3.8+). Shared helpers are in md_common.py.
 """
-import argparse
 import json
 import re
-import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    from zoneinfo import ZoneInfo  # Python 3.9+
-except ImportError:  # pragma: no cover
-    ZoneInfo = None
+from md_common import (Writer, attachments_line, base_parser, details, document, fence,
+                       fmt_dt, message_block, set_timezone)
 
 PRIVATE_USE = re.compile("[-]")  # citation markers ChatGPT embeds in text
-TZ = None
-
-
-# ---------------------------------------------------------------- helpers
-def to_dt(ts):
-    if ts in (None, ""):
-        return None
-    try:
-        if isinstance(ts, str):
-            try:
-                ts = float(ts)
-            except ValueError:
-                return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(TZ)
-        return datetime.fromtimestamp(float(ts), tz=timezone.utc).astimezone(TZ)
-    except (ValueError, OSError, OverflowError):
-        return None
-
-
-def fmt_dt(ts, with_time=True):
-    d = to_dt(ts)
-    if not d:
-        return ""
-    return d.strftime("%Y-%m-%d %H:%M" if with_time else "%Y-%m-%d")
-
-
-def safe_filename(title, max_len=80):
-    t = re.sub(r'[\\/:*?"<>|\x00-\x1f]', " ", title or "Untitled")
-    t = re.sub(r"\s+", " ", t).strip().strip(".")
-    return (t[:max_len].rstrip() or "Untitled")
-
-
-def yaml_str(s):
-    return json.dumps("" if s is None else str(s), ensure_ascii=False)
-
-
-def fence(text, lang=""):
-    """Code fence that cannot be broken by backticks inside the text."""
-    longest = max((len(m) for m in re.findall(r"`+", text or "")), default=0)
-    ticks = "`" * max(3, longest + 1)
-    return f"{ticks}{lang}\n{(text or '').rstrip()}\n{ticks}"
 
 
 # ---------------------------------------------------------------- input loading
@@ -216,8 +171,7 @@ def render_content(msg, include_thinking):
         for t in c.get("thoughts") or []:
             s, body = t.get("summary", ""), t.get("content", "")
             blocks.append(f"**{s}**\n\n{body}" if s else body)
-        body = "\n\n".join(b for b in blocks if b.strip())
-        return f"<details>\n<summary>Thinking</summary>\n\n{body}\n\n</details>" if body else ""
+        return details("Thinking", "\n\n".join(b for b in blocks if b.strip()))
     if ct == "reasoning_recap":
         return f"*{c.get('content', '')}*" if include_thinking and c.get("content") else ""
     if ct == "system_error":
@@ -233,10 +187,9 @@ def render_content(msg, include_thinking):
     return ""
 
 
-def attachments_line(meta):
+def message_attachments(meta):
     atts = (meta or {}).get("attachments") or []
-    names = [a.get("name") or a.get("id") for a in atts if isinstance(a, dict)]
-    return ("*Attachments: " + ", ".join(f"`{n}`" for n in names if n) + "*") if names else ""
+    return attachments_line(a.get("name") or a.get("id") for a in atts if isinstance(a, dict))
 
 
 # ---------------------------------------------------------------- conversation -> markdown
@@ -266,7 +219,7 @@ def convert(wrapper, conv, args):
         if is_tool_step and not args.include_tools:
             continue
         body = render_content(msg, args.include_thinking).strip()
-        att = attachments_line(meta)
+        att = message_attachments(meta)
         if not body and not att:
             continue
         model = model or meta.get("model_slug") or ""
@@ -278,87 +231,44 @@ def convert(wrapper, conv, args):
         if role == last_role == "assistant" and not args.timestamps:
             out.append(body)
         else:
-            head = f"## {label}"
-            if args.timestamps and msg.get("create_time"):
-                head += f"\n\n*{fmt_dt(msg['create_time'])}*"
-            out.append(head)
-            if att:
-                out.append(att)
-            if body:
-                out.append(body)
+            out.append(message_block(label, body, msg.get("create_time"), att, args.timestamps))
         last_role = role
         n_msgs += 1
 
     front = [
-        "---",
-        f"title: {yaml_str(title)}",
-        f"id: {yaml_str(cid)}",
-        f"url: {yaml_str('https://chatgpt.com/c/' + cid if cid else '')}",
-        f"created: {yaml_str(fmt_dt(created))}",
-        f"updated: {yaml_str(fmt_dt(updated))}",
+        ("title", title),
+        ("id", cid),
+        ("url", "https://chatgpt.com/c/" + cid if cid else ""),
+        ("created", fmt_dt(created)),
+        ("updated", fmt_dt(updated)),
+        ("model", model),
     ]
-    if model:
-        front.append(f"model: {yaml_str(model)}")
-    front += ["---", "", f"# {title}", "", ""]
-    return "\n".join(front) + "\n\n".join(out).rstrip() + "\n", n_msgs, title, cid, created
+    return document(title, front, out), n_msgs, title, cid, created
 
 
 # ---------------------------------------------------------------- main
 def main():
-    global TZ
-    ap = argparse.ArgumentParser(description="Convert a ChatGPT JSON export to Markdown files.")
-    ap.add_argument("input", help="Path to the export JSON file")
-    ap.add_argument("-o", "--out", help="Output folder")
-    ap.add_argument("--include-tools", action="store_true", help="Include tool / browsing / code output")
-    ap.add_argument("--include-thinking", action="store_true", help="Include reasoning summaries")
-    ap.add_argument("--timestamps", action="store_true", help="Timestamp each message")
-    ap.add_argument("--tz", help="Time zone, e.g. America/New_York")
+    ap = base_parser("Convert a ChatGPT JSON export to Markdown files.", "Path to the export JSON file")
     args = ap.parse_args()
-
-    if args.tz:
-        if not ZoneInfo:
-            sys.exit("--tz needs Python 3.9 or newer.")
-        TZ = ZoneInfo(args.tz)
+    set_timezone(args.tz)
 
     src = Path(args.input).expanduser()
     with src.open(encoding="utf-8") as f:
         data = json.load(f)
-    out_dir = Path(args.out).expanduser() if args.out else src.with_name(src.stem + "_md")
-    out_dir.mkdir(parents=True, exist_ok=True)
+    writer = Writer(Path(args.out) if args.out else src.with_name(src.stem + "_md"), "ChatGPT conversations")
 
-    index, failed, used = [], [], set()
     for wrapper, conv, err in load_conversations(data):
         title = wrapper.get("title") or "Untitled"
         if conv is None or not conv.get("mapping"):
-            failed.append((title, wrapper.get("id", ""), err or "no conversation data"))
+            writer.fail(title, wrapper.get("id", ""), err or "no conversation data")
             continue
         try:
             md, n, title, cid, created = convert(wrapper, conv, args)
         except Exception as e:  # keep going on one bad conversation
-            failed.append((title, wrapper.get("id", ""), f"conversion error: {e}"))
+            writer.fail(title, wrapper.get("id", ""), f"conversion error: {e}")
             continue
-        date = fmt_dt(created, with_time=False) or "undated"
-        base = f"{date} {safe_filename(title)}"
-        name = base + ".md"
-        if name.lower() in used:
-            name = f"{base} ({(cid or str(len(used)))[:8]}).md"
-        used.add(name.lower())
-        (out_dir / name).write_text(md, encoding="utf-8")
-        index.append((created or 0, date, title, name, n))
-
-    index.sort(key=lambda r: float(r[0]) if str(r[0]).replace(".", "", 1).isdigit() else 0, reverse=True)
-    lines = [f"# ChatGPT conversations ({len(index)})", ""]
-    for _, date, title, name, n in index:
-        link = name.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
-        lines.append(f"- {date}: [{title}]({link}) ({n} messages)")
-    if failed:
-        lines += ["", f"## Not converted ({len(failed)})", ""]
-        lines += [f"- {t} (`{i}`): {e}" for t, i, e in failed]
-    (out_dir / "_index.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    print(f"Wrote {len(index)} conversations to {out_dir}")
-    if failed:
-        print(f"{len(failed)} could not be converted (listed in _index.md).")
+        writer.add(md, title, cid, created, n)
+    writer.finish()
 
 
 if __name__ == "__main__":
