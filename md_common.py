@@ -1,6 +1,7 @@
 """
 Shared helpers for the chat-export to Markdown converters
-(chatgpt_json_to_md.py, librechat_json_to_md.py).
+(chatgpt_json_to_md.py, librechat_json_to_md.py, gemini_json_to_md.py,
+perplexity_json_to_md.py).
 
 Only the Python standard library is needed (Python 3.8+; --tz needs 3.9+).
 """
@@ -63,6 +64,15 @@ def safe_filename(title, max_len=80):
     return (t[:max_len].rstrip() or "Untitled")
 
 
+def short_title(text, max_len=100):
+    """First line of a prompt, whitespace collapsed, cut at a word boundary."""
+    t = re.sub(r"\s+", " ", (text or "").strip().split("\n")[0]).strip()
+    if len(t) <= max_len:
+        return t or "Untitled"
+    cut = t[:max_len].rsplit(" ", 1)[0]
+    return (cut if len(cut) > max_len // 2 else t[:max_len]).rstrip(" ,;:-") + "…"
+
+
 def yaml_str(s):
     return json.dumps("" if s is None else str(s), ensure_ascii=False)
 
@@ -111,15 +121,16 @@ ALWAYS_KEYS = {"title", "id", "url", "created", "updated"}
 
 
 # ---------------------------------------------------------------- command line
-def base_parser(description, input_help, multiple_inputs=False):
+def base_parser(description, input_help, multiple_inputs=False, tool_options=True):
     ap = argparse.ArgumentParser(description=description)
     if multiple_inputs:
         ap.add_argument("inputs", nargs="+", help=input_help)
     else:
         ap.add_argument("input", help=input_help)
     ap.add_argument("-o", "--out", help="Output folder")
-    ap.add_argument("--include-tools", action="store_true", help="Include tool / browsing / code output")
-    ap.add_argument("--include-thinking", action="store_true", help="Include reasoning (thinking) blocks")
+    if tool_options:  # exports that record tool calls and thinking
+        ap.add_argument("--include-tools", action="store_true", help="Include tool / browsing / code output")
+        ap.add_argument("--include-thinking", action="store_true", help="Include reasoning (thinking) blocks")
     ap.add_argument("--timestamps", action="store_true", help="Timestamp each message")
     ap.add_argument("--tz", help="Time zone, e.g. America/New_York")
     return ap
