@@ -1,7 +1,7 @@
 """
 Shared helpers for the chat-export to Markdown converters
 (chatgpt_json_to_md.py, librechat_json_to_md.py, gemini_json_to_md.py,
-perplexity_json_to_md.py).
+perplexity_json_to_md.py, claude_json_to_md.py).
 
 Only the Python standard library is needed (Python 3.8+; --tz needs 3.9+).
 """
