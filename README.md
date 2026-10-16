@@ -7,7 +7,7 @@ Scripts to export chat history from ChatGPT, LibreChat (genai.umass.edu) and Cla
 | `chatgpt_export.js` | Paste into the DevTools Console on chatgpt.com. Downloads every conversation as one JSON file (from [hoya98/chatgpt-export](https://github.com/hoya98/chatgpt-export), MIT license). |
 | `librechat_export_json.js` | Paste into the DevTools Console on genai.umass.edu. Exports every chat in the sidebar (or the IDs in `ONLY_IDS`) as one JSON file per chat, through the site's Share > Export dialog. Waits for each chat to load and blocks empty exports. |
 | `claude_download_export.js` | Paste into the DevTools Console on claude.ai (logged in). Pick the `manifest-*.json` from Claude's data-export email and it downloads every zip listed in it. Each link works once and expires after 24 hours. Set `ONLY_FILES` to download only some files. |
-| `chatgpt_json_to_md.py` | Converts the ChatGPT export to Markdown. |
+| `chatgpt_json_to_md.py` | Converts a ChatGPT export to Markdown: the official data export (the emailed zip, its extracted folder, or `conversations.json`) or the JSON file from `chatgpt_export.js`. |
 | `librechat_json_to_md.py` | Converts LibreChat JSON exports to Markdown. |
 | `gemini_json_to_md.py` | Converts a Google Takeout Gemini Apps export to Markdown. Takes the Takeout zip, the extracted folder, or `MyActivity.json`. |
 | `perplexity_json_to_md.py` | Converts a Perplexity data export (the emailed zip, or the `conversations-*.json` inside it) to Markdown. |
@@ -18,6 +18,7 @@ Scripts to export chat history from ChatGPT, LibreChat (genai.umass.edu) and Cla
 
 ```bash
 python3 chatgpt_json_to_md.py chatgpt-export-2026-10-14.json
+python3 chatgpt_json_to_md.py chatgpt-XDD-....zip
 python3 librechat_json_to_md.py ~/Downloads/librechat-json
 python3 gemini_json_to_md.py takeout-xudd09-20261015T034159Z-1-001.zip
 python3 perplexity_json_to_md.py user_data_export_2026-10-15-03-21-27_....zip
@@ -35,6 +36,8 @@ Shared options:
 | `--include-thinking` | Include the model's thinking as collapsible blocks (ChatGPT, LibreChat, Claude) |
 | `--timestamps` | Add a timestamp under each message heading |
 | `--tz ZONE` | Time zone for dates, for example `America/New_York` |
+
+ChatGPT only: the official export (Settings > Data controls > Export data) splits conversations into `conversations-000.json`, `conversations-001.json`, ...; all of them are read, and the group chats in `group_chats.json` are converted too (named `Group chat ...`). Uploaded and generated files are linked from their messages and images are shown inline. When the input is a zip, the files used are extracted into a `files/` subfolder of the output, so the output folder is self-contained. When the input is a folder or `conversations.json`, they link to the originals with relative paths. The official export leaves out tool calls, so `--include-tools` only matters for `chatgpt_export.js` exports. A zstd-compressed `chatgpt_export.js` file (`.json.zst`) also works when the `zstd` command is installed.
 
 LibreChat only: `--all-branches` (append the other branches of a chat), `--full-tool-output` (do not shorten tool output to 3,000 characters), `--base-url` (site address for the `url` field).
 
